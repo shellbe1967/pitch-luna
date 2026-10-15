@@ -3,6 +3,7 @@ name: Windows ビルド (PitchLuna.exe)
 on:
   workflow_dispatch:
   push:
+    branches: ["release"]          # release ブランチに置くとビルドが始まる
     tags: ["v*"]
 
 jobs:
