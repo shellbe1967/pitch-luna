@@ -42,8 +42,21 @@ MANIFEST = "version.json"
 STAGE_DIR = os.path.join(HERE, "_update")
 BACKUP_DIR = os.path.join(HERE, "backup")
 LOG = os.path.join(HERE, "update_log.txt")
+FROZEN = bool(getattr(sys, "frozen", False))      # ビルド版 (PitchLuna.exe) で動いているか
 # 入れ替えてはいけないもの (念のため。version.json の一覧にも入れない)
-PROTECTED = ("settings.json", "cache/", "backup/", "_update/", "takes/", "setup_log.txt", "update_log.txt")
+PROTECTED = ("settings.json", "cache/", "backup/", "_update/", "takes/", "setup_log.txt", "update_log.txt",
+             "_internal/", "PitchLuna.exe", "build.json")
+
+
+def build_version():
+    """ビルド版の版番号 (exe と同梱ライブラリの版)。Python で動かしているときは None。"""
+    if not FROZEN:
+        return None
+    try:
+        with open(os.path.join(HERE, "build.json"), encoding="utf-8") as f:
+            return json.load(f).get("build", "0.0.0")
+    except Exception:
+        return "0.0.0"
 
 
 # ---------------------------------------------------------------------------
@@ -114,8 +127,12 @@ def check(timeout=10):
         return {"current": cur, "latest": None, "available": False, "notes": [], "manifest": None,
                 "error": f"最新版を確かめられませんでした（インターネットの接続を確認してください）：{e}"}
     latest = m.get("version", "0.0.0")
+    needs_build = False
+    if FROZEN and m.get("min_build"):              # 中のライブラリが変わった版 → ZIP をダウンロードし直す
+        needs_build = parse_version(build_version()) < parse_version(m["min_build"])
     return {"current": cur, "latest": latest, "available": parse_version(latest) > parse_version(cur),
-            "notes": m.get("notes", []), "history": m.get("history", []), "manifest": m, "error": None}
+            "notes": m.get("notes", []), "history": m.get("history", []), "manifest": m, "error": None,
+            "needs_build": needs_build, "download_url": m.get("download_url", f"https://github.com/{REPO}/releases")}
 
 
 def changed_files(manifest):
@@ -224,6 +241,15 @@ def wait_pid(pid, timeout=60):
 
 def _install_requirements(manifest):
     """新しく必要になったライブラリを入れる (入っているものは何もしない)。"""
+    if FROZEN:                                     # ビルド版はライブラリを exe の中に持っている
+        import importlib.util
+
+        miss = [r["pip"] for r in manifest.get("requirements", []) if r.get("import") and
+                importlib.util.find_spec(r["import"]) is None]
+        if miss:
+            log("このビルドに入っていないライブラリがあります: " + ", ".join(miss) +
+                " → 新しいビルド (ZIP) をダウンロードしてください")
+        return
     for req in manifest.get("requirements", []):
         mod, pkg = req.get("import"), req.get("pip")
         if not mod or not pkg:
@@ -313,6 +339,9 @@ def _prune_backups(keep=5):
 def _restart():
     log("ソフトを起動し直します…")
     kw = {"cwd": HERE}
+    if FROZEN:
+        subprocess.Popen([sys.executable], **kw)        # PitchLuna.exe
+        return
     if os.name == "nt":
         kw["creationflags"] = 0x00000010                # CREATE_NEW_CONSOLE
     subprocess.Popen([sys.executable, os.path.join(HERE, "singing_trainer.py")], **kw)
@@ -323,7 +352,10 @@ def launch_apply(stage, restart=True):
     kw = {"cwd": HERE}
     if os.name == "nt":
         kw["creationflags"] = 0x00000010                # CREATE_NEW_CONSOLE (進み具合が見える)
-    args = [sys.executable, os.path.abspath(__file__), "--apply", stage, "--pid", str(os.getpid())]
+    if FROZEN:                                         # PitchLuna.exe --updater --apply ...
+        args = [sys.executable, "--updater", "--apply", stage, "--pid", str(os.getpid())]
+    else:
+        args = [sys.executable, os.path.abspath(__file__), "--apply", stage, "--pid", str(os.getpid())]
     if restart:
         args.append("--restart")
     subprocess.Popen(args, **kw)

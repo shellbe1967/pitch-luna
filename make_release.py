@@ -22,6 +22,7 @@ FILES = [
     "midi_loader.py", "library.py", "pitch_core.py", "ui_menu.py", "theme.py", "updater.py",
     "setup.bat", "setup_check.py", "test_mic_pitch.py", "取扱説明書.txt",
     "fonts/NotoSansJP-Regular.otf", "fonts/NotoSansJP-Bold.otf", "fonts/LICENSE-NotoSansJP.txt",
+    "assets/icon.png", "assets/icon.ico", "launcher.py",
 ]
 
 # 必要なライブラリ (入っていなければアップデートのときに pip で入れる)

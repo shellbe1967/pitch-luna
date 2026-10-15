@@ -1,15 +1,16 @@
 {
  "name": "Pitch Luna — If Vocal",
- "version": "1.0.0",
+ "version": "1.1.0",
  "date": "2026-10-15",
  "notes": [
-  "最初の公開版（GitHub からのアップデートに対応）",
-  "ヘルプ → アップデートを確認 / ファイル (ZIP) からアップデート / バージョン情報"
+  "ビルド版 (PitchLuna.exe) に対応（Python なしでダブルクリックで起動）",
+  "ウィンドウに三日月と音符のアイコン",
+  "取扱説明書にビルド版の使い方を追加"
  ],
  "files": {
   "singing_trainer.py": {
-   "sha256": "ec06db2e2ad175f2d9ef8c449cf28edc36368b07271d5b02413c4c24a1625ea6",
-   "size": 251229
+   "sha256": "b1f8bea3e7fafb7b4f499c4bd9d89801300be7b6c20476a2788368aebbb831b9",
+   "size": 252231
   },
   "audio_processor.py": {
    "sha256": "9b86adb230ecad6610b1e28bd5dd4054a5a8493eca4f80464937a2d2e14554a0",
@@ -48,8 +49,8 @@
    "size": 2214
   },
   "updater.py": {
-   "sha256": "db026e042631132d9fd54ab24300c5b7f1d7787462693a7d17016cd95386be17",
-   "size": 14535
+   "sha256": "e3e30455672c0360be22262bdd2ee2910d04459349054c3c47735613b5322977",
+   "size": 16248
   },
   "setup.bat": {
    "sha256": "0a0295989681bc4d61417572c05ae35e1902d5672105faf4929be078b619c421",
@@ -64,8 +65,8 @@
    "size": 12513
   },
   "取扱説明書.txt": {
-   "sha256": "5aa9a2802f6b8b0844294836db68d671eb06718788127fa3161da5b176c598b0",
-   "size": 43507
+   "sha256": "d7f96c285b9eec7c4ad1860936024126d7661a74e9eea611d91bedcaa4fa2a92",
+   "size": 46308
   },
   "fonts/NotoSansJP-Regular.otf": {
    "sha256": "dff723ba59d57d136764a04b9b2d03205544f7cd785a711442d6d2d085ac5073",
@@ -78,6 +79,18 @@
   "fonts/LICENSE-NotoSansJP.txt": {
    "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
    "size": 4301
+  },
+  "assets/icon.png": {
+   "sha256": "bc164c519348b7a591657fded2aa43fb28dca204b6230f81711d8a5ef05a8158",
+   "size": 2217
+  },
+  "assets/icon.ico": {
+   "sha256": "8648effb9782684a565eb615bf90089a5d48f99be1298d443e76dbca0feb43b9",
+   "size": 19145
+  },
+  "launcher.py": {
+   "sha256": "67f91ca0e54b13bb74db5e8c3568110d38c3abe05735599db84b70edfe55e3a8",
+   "size": 8134
   }
  },
  "requirements": [
@@ -98,5 +111,14 @@
    "pip": "scipy"
   }
  ],
- "history": []
+ "history": [
+  {
+   "version": "1.0.0",
+   "date": "2026-10-15",
+   "notes": [
+    "最初の公開版（GitHub からのアップデートに対応）",
+    "ヘルプ → アップデートを確認 / ファイル (ZIP) からアップデート / バージョン情報"
+   ]
+  }
+ ]
 }

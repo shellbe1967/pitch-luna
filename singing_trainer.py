@@ -4127,8 +4127,20 @@ class Trainer:
             title = f"新しい版 {info.get('latest')} があります"
             lines = [(f"今の版：{cur}　→　新しい版：{info.get('latest')}", WHITE), ("", WHITE), ("変更点", ACCENT)]
             lines += [("・" + n, DIM) for n in (info.get("notes") or ["（説明なし）"])[:8]]
-            lines += [("", WHITE), ("設定・解析した曲・テイク・お手本の編集版はそのまま残ります。", FAINT)]
-            buttons = [("今すぐ更新", UPDATE.download, True), ("あとで", UPDATE.close, False)]
+            if info.get("needs_build"):                 # 中のライブラリが変わった版 (ビルド版のとき)
+                lines += [("", WHITE), ("この版は、ソフトの中の部品も新しくなっています。", NEAR),
+                          ("GitHub から新しい ZIP をダウンロードして、上書きしてください（設定や曲のデータはそのまま）。", NEAR)]
+
+                def open_page(url=info.get("download_url")):
+                    import webbrowser
+
+                    webbrowser.open(url)
+                    UPDATE.close()
+
+                buttons = [("ダウンロードページを開く", open_page, True), ("あとで", UPDATE.close, False)]
+            else:
+                lines += [("", WHITE), ("設定・解析した曲・テイク・お手本の編集版はそのまま残ります。", FAINT)]
+                buttons = [("今すぐ更新", UPDATE.download, True), ("あとで", UPDATE.close, False)]
         elif st_ == "downloading":
             lines = [(f"ダウンロードしています… {int(UPDATE.progress * 100)}%", WHITE)]
         elif st_ == "ready":
@@ -5042,6 +5054,10 @@ def main():
     _window_state["fullscreen"] = args.fullscreen
     open_window(pg, DEFAULT_SIZE, args.fullscreen)
     pg.display.set_caption(APP_TITLE)
+    try:                                         # ウィンドウのアイコン (三日月と音符)
+        pg.display.set_icon(pg.image.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.png")))
+    except Exception:
+        pass
     shell = Shell(pg, args)
     shell.run(autoquit=args.autoquit, start_song=args.mp3)
     pg.quit()

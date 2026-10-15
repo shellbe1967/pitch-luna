@@ -14,3 +14,12 @@ test_song*
 # Python
 __pycache__/
 *.pyc
+
+# ビルドで作られるもの
+work/
+dist/
+pitchluna_deps.py
+selftest_result.json
+pitchluna_log.txt
+_selftest/
+build.json
