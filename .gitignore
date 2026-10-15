@@ -1,0 +1,16 @@
+# 個人のデータ (アップデートでも触らない)
+settings.json
+cache/
+backup/
+_update/
+takes/
+setup_log.txt
+update_log.txt
+# テスト用の曲
+test_song*
+*.mp3
+*.wav
+*.mid
+# Python
+__pycache__/
+*.pyc

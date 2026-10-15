@@ -1,0 +1,102 @@
+{
+ "name": "Pitch Luna — If Vocal",
+ "version": "1.0.0",
+ "date": "2026-10-15",
+ "notes": [
+  "最初の公開版（GitHub からのアップデートに対応）",
+  "ヘルプ → アップデートを確認 / ファイル (ZIP) からアップデート / バージョン情報"
+ ],
+ "files": {
+  "singing_trainer.py": {
+   "sha256": "ec06db2e2ad175f2d9ef8c449cf28edc36368b07271d5b02413c4c24a1625ea6",
+   "size": 251229
+  },
+  "audio_processor.py": {
+   "sha256": "9b86adb230ecad6610b1e28bd5dd4054a5a8493eca4f80464937a2d2e14554a0",
+   "size": 30251
+  },
+  "audio_fx.py": {
+   "sha256": "59f277eced2bb5dbcfa7cb64ae1d2b5731e53b186b825cab2db805d3025fc230",
+   "size": 6941
+  },
+  "beat_analyzer.py": {
+   "sha256": "f53d0c6a32c7fa98b3d0d30243f21a1b1567bba8a566ac0bd8122c28e420c88b",
+   "size": 17826
+  },
+  "key_analyzer.py": {
+   "sha256": "d628df6ce0e07d6f3f1658ebced3d717c5d32f568b0a3f06077abb8f2d1ec940",
+   "size": 10017
+  },
+  "midi_loader.py": {
+   "sha256": "57e6ff77ec95e7c7850c530905158af2e22e7dad44ff4ae4ba087d413b1e1080",
+   "size": 17985
+  },
+  "library.py": {
+   "sha256": "214324774317a3eb2a091ee74e35d345cf406dbea7e91277912bc4254fe9e9b9",
+   "size": 20708
+  },
+  "pitch_core.py": {
+   "sha256": "4d4cc77fee75568b2995e25d6924ce288a5dff1ee5ae9ca51b503f21261c521f",
+   "size": 3948
+  },
+  "ui_menu.py": {
+   "sha256": "1bdbeebabc3ba142173d36a662ee1ef2ba791aa4db2110ea5fbc82df52efd44f",
+   "size": 13775
+  },
+  "theme.py": {
+   "sha256": "1a821a001b2e1d0f1a459a8dc4a7e2a7a609ee8cb8ddf05db2d0a5e5999aa201",
+   "size": 2214
+  },
+  "updater.py": {
+   "sha256": "db026e042631132d9fd54ab24300c5b7f1d7787462693a7d17016cd95386be17",
+   "size": 14535
+  },
+  "setup.bat": {
+   "sha256": "0a0295989681bc4d61417572c05ae35e1902d5672105faf4929be078b619c421",
+   "size": 226
+  },
+  "setup_check.py": {
+   "sha256": "149d9b607f07d7509633ff912594c9db3ed84ffe05bf811053de4a4959ae2bf8",
+   "size": 30857
+  },
+  "test_mic_pitch.py": {
+   "sha256": "5862285eb19a73e86be2803ec86b30b39294b4f60e4a20a9fd7d2118a062504d",
+   "size": 12513
+  },
+  "取扱説明書.txt": {
+   "sha256": "5aa9a2802f6b8b0844294836db68d671eb06718788127fa3161da5b176c598b0",
+   "size": 43507
+  },
+  "fonts/NotoSansJP-Regular.otf": {
+   "sha256": "dff723ba59d57d136764a04b9b2d03205544f7cd785a711442d6d2d085ac5073",
+   "size": 4533028
+  },
+  "fonts/NotoSansJP-Bold.otf": {
+   "sha256": "1b0edfb500b73a4fa8a4fcaae1bbbd403994e08e73e3e0da37e70d3853f42c5f",
+   "size": 4656448
+  },
+  "fonts/LICENSE-NotoSansJP.txt": {
+   "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+   "size": 4301
+  }
+ },
+ "requirements": [
+  {
+   "import": "pygame",
+   "pip": "pygame"
+  },
+  {
+   "import": "sounddevice",
+   "pip": "sounddevice"
+  },
+  {
+   "import": "numpy",
+   "pip": "numpy"
+  },
+  {
+   "import": "scipy",
+   "pip": "scipy"
+  }
+ ],
+ "history": []
+}
