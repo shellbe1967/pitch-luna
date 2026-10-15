@@ -65,7 +65,7 @@ def main():
         history = [{"version": old["version"], "date": old.get("date", ""), "notes": old.get("notes", [])}] + history
     m = {"name": "Pitch Luna — If Vocal", "version": version, "date": time.strftime("%Y-%m-%d"),
          "notes": notes, "files": files, "requirements": REQUIREMENTS, "history": history[:30],
-         "download_url": "https://github.com/shellbe1967/pitch-luna/actions/workflows/build.yml"}
+         "download_url": "https://github.com/shellbe1967/pitch-luna/releases/latest"}
     with open(path, "w", encoding="utf-8") as f:
         json.dump(m, f, ensure_ascii=False, indent=1)
     print(f"version.json を作りました: {version}（ファイル {len(files)} 個）")

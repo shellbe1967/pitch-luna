@@ -1,0 +1,57 @@
+name: 公開 (ビルド版を分けて Releases に置く)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["publish"]          # publish ブランチに置くと公開が始まる
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: 作業場所を空ける
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - name: 公開する版を読む
+        id: cfg
+        run: |
+          echo "run=$(sed -n 's/^run_id=//p' build/publish.txt)" >> "$GITHUB_OUTPUT"
+          echo "ver=$(python3 -c "import json;print(json.load(open('version.json',encoding='utf-8'))['version'])")" >> "$GITHUB_OUTPUT"
+
+      - name: ビルド版を受け取る
+        uses: actions/download-artifact@v4
+        with:
+          name: PitchLuna-${{ steps.cfg.outputs.ver }}-windows
+          path: dist/PitchLuna
+          run-id: ${{ steps.cfg.outputs.run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ZIP に分ける (1つ 2GB 未満)
+        run: |
+          du -sh dist/PitchLuna
+          python3 build/split_release.py dist/PitchLuna "${{ steps.cfg.outputs.ver }}" out
+          rm -rf dist
+          ls -l out
+
+      - name: Releases に置く
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ steps.cfg.outputs.ver }}"
+          title="Pitch Luna — If Vocal ${{ steps.cfg.outputs.ver }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$title" --notes-file build/release_notes.md --latest
+            gh release upload "$tag" out/*.zip --clobber
+          else
+            gh release create "$tag" out/*.zip --title "$title" --notes-file build/release_notes.md --target "${{ github.sha }}" --latest
+          fi
+          gh release view "$tag"
