@@ -9,7 +9,9 @@
   ・行の歌い出しの記録: 再生しながら、各行の歌い出しで Enter
 """
 
+import json
 import os
+import sys
 import time
 import threading
 
@@ -18,6 +20,9 @@ from theme import (BG_DEEP, PANEL, HAIR, HAIR_STRONG, OUTLINE, WHITE, DIM, FAINT
 from ui_menu import MenuItem, SEPARATOR, PopupMenu
 
 G = {}                       # singing_trainer の変数 (PX_PER_SEC・W・H など)。bind() で受け取る
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+LYRICS_DIR = os.path.join(APP_DIR, "歌詞")              # 曲名.lrc を残すフォルダ (曲を解析し直しても消えない)
+LYRICS_DATA = os.path.join(LYRICS_DIR, "_data")          # ふりがな・1音ずつの時刻・AI の聞き取り (元に戻す用)
 
 SIZE_CHOICES = ((16, "小"), (20, "中"), (26, "大"))
 SUNG = ACCENT                # 歌ったところの色
@@ -184,6 +189,22 @@ class LyricsMixin:
                     self._auto_times(self.lyrics)
             except Exception:
                 self.lyrics = None
+        if self.lyrics is None:
+            ly = self._load_from_lyrics_folder()
+            if ly is not None:
+                self.lyrics = ly
+                if not ly.times and ly.mora_count():
+                    self._auto_times(ly)
+                try:
+                    if p:
+                        ly.save(p)
+                except Exception:
+                    pass
+                self.show_toast("「歌詞」フォルダから、この曲の歌詞を読み込みました", 3.0)
+        elif self.lyrics.source != "asr":
+            lrc = self._folder_paths()[0]
+            if lrc and not os.path.exists(lrc):       # 前の版で入れた歌詞: 歌詞フォルダにも残す
+                self._save_to_lyrics_folder()
         self._rebuild_background()
         # 曲を開いたとき自動で聞き取る (モデルがあるときだけ。ダウンロードは手動のときだけ)
         if self.asr is None and self._sget("asr_auto", False) and self._vocals_path():
@@ -210,12 +231,110 @@ class LyricsMixin:
                 self.lyrics.save(p)
             except Exception as e:
                 self.show_toast(f"歌詞を保存できませんでした：{e}", 4.0)
+            self._save_to_lyrics_folder()
+
+    # ---------- 歌詞フォルダ (ソフトのフォルダの「歌詞」) ----------
+    def _song_stem(self):
+        if not self.song_path:
+            return None
+        stem = os.path.splitext(os.path.basename(self.song_path))[0].strip()
+        for c in '\\/:*?"<>|':
+            stem = stem.replace(c, "_")
+        return stem or None
+
+    def _folder_paths(self):
+        stem = self._song_stem()
+        if not stem:
+            return None, None, None
+        return (os.path.join(LYRICS_DIR, stem + ".lrc"), os.path.join(LYRICS_DATA, stem + ".json"),
+                os.path.join(LYRICS_DATA, stem + ".asr.json"))
+
+    def _save_to_lyrics_folder(self):
+        """歌詞フォルダに 曲名.lrc (と、元に戻すためのデータ) を残す。"""
+        lrc, data, _ = self._folder_paths()
+        if not lrc or self.lyrics is None or self.lyrics.source == "asr":
+            return                                  # AI の仮の歌詞は残さない (正しい歌詞を入れたら残す)
+        try:
+            os.makedirs(LYRICS_DATA, exist_ok=True)
+            head = [f"[ti:{os.path.splitext(os.path.basename(self.song_path))[0]}]", "[re:Pitch Luna — If Vocal]"]
+            tmp = lrc + ".tmp"
+            with open(tmp, "w", encoding="utf-8-sig", newline="\r\n") as f:
+                f.write(self.lyrics.to_lrc(words=True, header=head))
+            os.replace(tmp, lrc)
+            d = self.lyrics.to_dict()
+            d["song"] = self.song_path
+            tmp = data + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(d, f, ensure_ascii=False)
+            os.replace(tmp, data)
+        except Exception:
+            pass
+
+    def _save_asr_to_folder(self, res):
+        _, _, ap = self._folder_paths()
+        if ap:
+            try:
+                os.makedirs(LYRICS_DATA, exist_ok=True)
+                with open(ap, "w", encoding="utf-8") as f:
+                    json.dump(res, f, ensure_ascii=False)
+            except Exception:
+                pass
+
+    def _load_from_lyrics_folder(self):
+        """曲のフォルダに歌詞が無いとき (解析し直したときなど): 歌詞フォルダから戻す。"""
+        lrc, data, ap = self._folder_paths()
+        if not lrc:
+            return None
+        if self.asr is None and ap and os.path.exists(ap):
+            try:
+                with open(ap, encoding="utf-8") as f:
+                    self.asr = json.load(f)
+                p = self._asr_path()
+                if p:
+                    import lyrics_asr
+
+                    lyrics_asr.save(p, self.asr)
+            except Exception:
+                pass
+        ly = None
+        try:
+            if data and os.path.exists(data) and (not os.path.exists(lrc) or os.path.getmtime(data) >= os.path.getmtime(lrc) - 2):
+                with open(data, encoding="utf-8") as f:
+                    ly = LY.Lyrics.from_dict(json.load(f))
+            elif os.path.exists(lrc):                 # .lrc だけ (手で書き換えた / ほかのソフトで作った)
+                ly = LY.Lyrics.from_lrc(read_text_file(lrc), self.guide.notes)
+                if not ly.times and ly.mora_count():
+                    self._auto_times(ly)
+        except Exception:
+            ly = None
+        return ly if ly is not None and ly.lines else None
+
+    def open_lyrics_folder(self):
+        try:
+            os.makedirs(LYRICS_DIR, exist_ok=True)
+            if sys.platform == "win32":
+                os.startfile(LYRICS_DIR)
+            else:
+                import subprocess
+
+                subprocess.Popen(["xdg-open", LYRICS_DIR])
+        except Exception as e:
+            self.show_toast(f"フォルダを開けませんでした：{e}", 3.0)
+
+    def _remove_from_lyrics_folder(self):
+        lrc, data, _ = self._folder_paths()
+        for p in (lrc, data):
+            try:
+                if p and os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
 
     def _set_lyrics(self, ly, msg):
         if self.lyrics is not None:
             self._push_lyric_undo()
         self.lyrics = ly
-        r = self._auto_times(ly) if ly.mora_count() else None
+        r = self._auto_times(ly) if ly.mora_count() and not ly.times else None
         self.save_lyrics()
         self.view["lyrics"] = True
         self._rebuild_background()
@@ -260,7 +379,8 @@ class LyricsMixin:
         if not LY.parse_lrc(text):
             self.show_toast("時刻つきの行が見つかりませんでした（[00:12.34]歌詞 の形の .lrc を選んでください）", 5.0)
             return
-        self._start_lyric_job(lambda: LY.Lyrics.from_lrc(text), "時間つき歌詞 (.lrc) を読み込みました")
+        notes = list(self.guide.notes)
+        self._start_lyric_job(lambda: LY.Lyrics.from_lrc(text, notes), "時間つき歌詞 (.lrc) を読み込みました")
 
     def lyrics_save_lrc(self):
         if not self.lyrics:
@@ -271,7 +391,7 @@ class LyricsMixin:
             return
         try:
             with open(p, "w", encoding="utf-8") as f:
-                f.write(self.lyrics.to_lrc())
+                f.write(self.lyrics.to_lrc(words=True))
             self.show_toast(f"保存しました：{os.path.basename(p)}", 3.0)
         except Exception as e:
             self.show_toast(f"保存できませんでした：{e}", 4.0)
@@ -290,6 +410,7 @@ class LyricsMixin:
                 os.remove(p)
         except Exception:
             pass
+        self._remove_from_lyrics_folder()
         self._rebuild_background()
         self.show_toast("歌詞を消しました")
 
@@ -397,6 +518,7 @@ class LyricsMixin:
                 lyrics_asr.load_whisper()
                 res = lyrics_asr.transcribe(voc, name, use_gpu, prog, lambda: job["cancel"])
                 lyrics_asr.save(out, res)
+                self._save_asr_to_folder(res)
                 job["result"] = res
             except lyrics_asr.Cancelled:
                 job["error"] = "cancel"
@@ -589,7 +711,8 @@ class LyricsMixin:
         ] + [MenuItem(f"文字の大きさ：{name}", (lambda s=s: self._set_view_opt("lyric_size", s)),
                       checked=(lambda s=s: int(self.view.get("lyric_size", 20)) == s)) for s, name in SIZE_CHOICES] + [
             SEPARATOR,
-            MenuItem(".lrc ファイルとして保存…", self.lyrics_save_lrc, enabled=has),
+            MenuItem("「歌詞」フォルダを開く（曲名.lrc を自動で保存）", self.open_lyrics_folder),
+            MenuItem(".lrc ファイルとして別の場所に保存…", self.lyrics_save_lrc, enabled=has),
             MenuItem("歌詞を消す…", self.lyrics_clear, enabled=has),
         ]
         return items
@@ -799,6 +922,7 @@ class LyricsMixin:
                     os.remove(p)
             except Exception:
                 pass
+            self._remove_from_lyrics_folder()
         else:
             self.save_lyrics()
         self._rebuild_background()

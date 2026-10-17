@@ -222,6 +222,37 @@ def parse_lrc(text):
     return [(t, s) for t, s in out if s]
 
 
+_WTAG = re.compile(r"<(\d+):(\d+(?:[.:]\d+)?)>")
+
+
+def _sec(m):
+    return int(m.group(1)) * 60 + float(m.group(2).replace(":", "."))
+
+
+def parse_lrc_words(text):
+    """1語ごとの時刻つき .lrc (<00:12.34> を言葉の前に入れる形) も読む。
+    → [(行の時刻, 行の文字, [(文字の位置, 時刻)])]"""
+    out = []
+    for raw in text.splitlines():
+        tags = list(_TAG.finditer(raw))
+        if not tags:
+            continue
+        rest = _TAG.sub("", raw)
+        body, marks, pos = "", [], 0
+        for m in _WTAG.finditer(rest):
+            body += rest[pos:m.start()]
+            marks.append((len(body), round(_sec(m), 3)))
+            pos = m.end()
+        body += rest[pos:]
+        lead = len(body) - len(body.lstrip())
+        body = body.strip()
+        marks = [(max(0, i - lead), t) for i, t in marks if i - lead <= len(body)]
+        for m in tags:
+            out.append((round(_sec(m), 3), body, marks))
+    out.sort(key=lambda x: x[0])
+    return [x for x in out if x[1]]
+
+
 def fmt_lrc_time(t):
     t = max(0.0, t)
     m = int(t // 60)
@@ -249,22 +280,83 @@ class Lyrics:
         return ly
 
     @classmethod
-    def from_lrc(cls, text):
-        rows = parse_lrc(text)
-        return cls.from_text("\n".join(s for _, s in rows), [t for t, _ in rows])
+    def from_lrc(cls, text, notes=None):
+        rows = parse_lrc_words(text)
+        ly = cls.from_text("\n".join(s for _, s, _ in rows), [t for t, _, _ in rows])
+        if any(marks for _, _, marks in rows) and len(ly.lines) == len(rows):
+            ly._times_from_marks(rows, notes)
+        return ly
+
+    def _times_from_marks(self, rows, notes=None):
+        """1語ごとの時刻 (文字の位置 → 時刻) から、1音ずつの時刻を作る。"""
+        times = []
+        ns = sorted(((float(n["start"]), float(n["end"])) for n in notes or [] if n["end"] > n["start"]), key=lambda x: x[0])
+        for i, (lt, body, marks) in enumerate(rows):
+            nxt = rows[i + 1][0] if i + 1 < len(rows) else None
+            pts = sorted(set([(0, lt)] + marks))
+            last_t = max(t for _, t in pts)
+            end_t = min(nxt, last_t + 0.6) if nxt is not None and nxt > last_t else last_t + 0.6
+            pts.append((len(body), end_t))
+            pts = [(p, t) for p, t in sorted(pts)]
+
+            def at(c):
+                for (p0, t0), (p1, t1) in zip(pts, pts[1:]):
+                    if p0 <= c <= p1:
+                        return t0 if p1 == p0 else t0 + (t1 - t0) * (c - p0) / (p1 - p0)
+                return pts[-1][1]
+            pos = 0
+            for u in self.lines[i]["units"]:
+                ln = len(u["s"]) + len(u.get("k", ""))
+                if u["m"]:
+                    a, b = at(pos), at(pos + ln)
+                    if b <= a:
+                        b = a + 0.1 * len(u["m"])
+                    n = len(u["m"])
+                    inside = [(max(x, a), min(y, b)) for x, y in ns if x >= a - 0.03 and x < b - 0.03 and y > x] if ns else []
+                    if n > 1 and inside:                # 2音以上の言葉: その中のお手本バーに合わせる
+                        times += _fit_morae(inside, n)
+                    else:
+                        d = (b - a) / n
+                        times += [(a + r * d, a + (r + 1) * d) for r in range(n)]
+                pos += ln
+        for k in range(1, len(times)):                  # 逆戻り・重なりを直す
+            a, b = times[k]
+            if a < times[k - 1][0] + 0.02:
+                a = times[k - 1][0] + 0.02
+                times[k] = (a, max(b, a + 0.03))
+            if times[k - 1][1] > times[k][0]:
+                times[k - 1] = (times[k - 1][0], times[k][0])
+        if len(times) == self.mora_count():
+            self.times = [(round(a, 3), round(b, 3)) for a, b in times]
+            self.manual = True
 
     def text(self):
         return "\n".join(l["text"] for l in self.lines)
 
-    def to_lrc(self):
-        out = []
+    def to_lrc(self, words=True, header=None):
+        """.lrc の文字にする。words=True: 言葉ごとの時刻 <00:12.34> も入れる (カラオケの色変わりも残る)。"""
+        out = list(header or [])
+        k = 0
         for i, l in enumerate(self.lines):
             t = l.get("t")
-            if t is None:
-                k = self.first_mora(i)
-                t = self.times[k][0] if k is not None and k < len(self.times) else None
+            first = self.first_mora(i)
+            if t is None and first is not None and first < len(self.times):
+                t = self.times[first][0]
+            body = l["text"]
+            if words and self.times and "".join(u["s"] + u.get("k", "") for u in l["units"]) == l["text"]:
+                parts = []
+                kk = k
+                for u in l["units"]:
+                    txt = u["s"] + u.get("k", "")
+                    if u["m"] and kk < len(self.times):
+                        parts.append(f"<{fmt_lrc_time(self.times[kk][0])}>{txt}")
+                    else:
+                        parts.append(txt)
+                    kk += len(u["m"])
+                body = "".join(parts)
+            k += self.line_morae(i)
             if t is not None:
-                out.append(f"[{fmt_lrc_time(t)}]{l['text']}")
+                out.append(f"[{fmt_lrc_time(t)}]{body}")
         return "\n".join(out) + "\n"
 
     # --- 保存 ---
