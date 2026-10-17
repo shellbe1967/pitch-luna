@@ -4666,6 +4666,11 @@ class Shell:
             t.pb.set_vocal_gain(float(self.settings.get("vocal_gain", 1.0)))
         t.apply_view(self.settings.get("view"))
         t.on_view_change = lambda: self._save_view(t)
+        t.settings_io = (lambda k, d=None: self.settings.get(k, d), self._set_setting)   # 歌詞の AI の設定など
+
+    def _set_setting(self, k, v):
+        self.settings[k] = v
+        self.lib.save_settings(self.settings)
 
     def _save_view(self, t):
         self.settings["view"] = dict(t.view)
@@ -5063,6 +5068,42 @@ class Shell:
 
 
 # ---------------------------------------------------------------------------
+def lyrics_selftest(wav):
+    """歌詞の部品の動作確認 (ビルド版でも動くか)。結果は lyrics_selftest.json。"""
+    out = {"ok": False, "steps": []}
+    base = os.path.dirname(os.path.abspath(__file__))
+
+    def step(name, fn):
+        t0 = time.time()
+        try:
+            r = fn()
+            out["steps"].append({"name": name, "ok": True, "sec": round(time.time() - t0, 1), "info": str(r)[:400]})
+            print(f"OK  {name} ({time.time() - t0:.1f}s) {str(r)[:200]}", flush=True)
+            return r
+        except Exception as e:
+            out["steps"].append({"name": name, "ok": False, "error": f"{type(e).__name__}: {e}",
+                                 "trace": traceback.format_exc()[-2000:]})
+            print(f"NG  {name}: {traceback.format_exc()}", flush=True)
+            raise
+
+    try:
+        import lyrics as LY
+        import lyrics_asr
+
+        step("歌詞の読み (Janome)", lambda: [(u["s"], u["r"], u["m"]) for u in LY.make_units("風が吹く夜明けの街で")])
+        step("whisper の部品", lambda: lyrics_asr.load_whisper().__file__)
+        step("AI モデルのダウンロード (small)", lambda: lyrics_asr.download_model("small"))
+        res = step("聞き取り (CPU)", lambda: lyrics_asr.transcribe(wav, "small", use_gpu=False))
+        step("言葉の時刻", lambda: [(w["w"], w["s"], w["e"]) for s_ in res["segments"] for w in s_["words"]][:20])
+        out["ok"] = sum(len(s_["words"]) for s_ in res["segments"]) > 0
+    except Exception:
+        out["ok"] = False
+    with open(os.path.join(base, "lyrics_selftest.json"), "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False, indent=1)
+    print("LYRICS SELFTEST " + ("OK" if out["ok"] else "NG"), flush=True)
+    return 0 if out["ok"] else 1
+
+
 def main():
     ap = argparse.ArgumentParser(description=APP_TITLE)
     ap.add_argument("mp3", nargs="?", help="一覧で最初に選んでおく曲 (解析は曲を開いたときに行います)")
@@ -5080,7 +5121,11 @@ def main():
     ap.add_argument("--engine", choices=["auto", "crepe", "pyin", "yin"], default="auto", help="音程の解析方法 (auto=使える中で最高精度)")
     ap.add_argument("--crepe-model", choices=["full", "tiny"], default="full", help="CREPE の大きさ (tiny は速い)")
     ap.add_argument("--cpu", action="store_true", help="グラボを使わず CPU で解析する (既定はグラボ)")
+    ap.add_argument("--lyrics-selftest", default=None, metavar="WAV",
+                    help="動作確認用: 歌詞の読み・AI の聞き取り (small) を試して lyrics_selftest.json に書く")
     args = ap.parse_args()
+    if args.lyrics_selftest:
+        sys.exit(lyrics_selftest(args.lyrics_selftest))
     if args.mp3 and not os.path.isfile(args.mp3):
         sys.exit(f"ファイルが見つかりません: {args.mp3}")
 

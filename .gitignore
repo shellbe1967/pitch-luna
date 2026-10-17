@@ -26,3 +26,5 @@ build.json
 
 # 歌詞の読みの部品 (初回に vendor の whl から展開される)
 _lib/
+# 歌詞の聞き取りの AI モデル (使う人がダウンロード)
+models/

@@ -12,7 +12,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = ["singing_trainer.py", "audio_processor.py", "audio_fx.py", "beat_analyzer.py", "key_analyzer.py",
        "midi_loader.py", "library.py", "pitch_core.py", "ui_menu.py", "theme.py", "updater.py",
-       "lyrics.py", "lyrics_view.py"]
+       "lyrics.py", "lyrics_view.py", "lyrics_asr.py", "vendor_lib.py"]
 OWN = {os.path.splitext(f)[0] for f in os.listdir(ROOT) if f.endswith(".py")}
 # 本体からは直接 import していないが、中で使われるもの
 EXTRA = ["tkinter.filedialog", "tkinter.simpledialog", "pygame._sdl2.audio", "soundfile", "audioread",
@@ -21,7 +21,10 @@ EXTRA = ["tkinter.filedialog", "tkinter.simpledialog", "pygame._sdl2.audio", "so
          "librosa", "librosa.core", "librosa.feature", "numba", "concurrent.futures", "webbrowser",
          "http.client", "ssl", "email.utils",
          # 歌詞の読み (Janome: vendor の whl を実行時に展開して使う) が使う標準ライブラリ
-         "mmap", "gzip", "pickle", "pkgutil", "unicodedata", "zlib", "base64", "logging", "struct", "zipfile"]
+         "mmap", "gzip", "pickle", "pkgutil", "unicodedata", "zlib", "base64", "logging", "struct", "zipfile",
+         # 歌詞の聞き取り (Whisper: vendor から実行時に読み込む) が使うもの
+         "dataclasses", "hashlib", "string", "subprocess", "argparse", "contextlib", "urllib.request",
+         "concurrent.futures", "tqdm", "numba", "torch.distributions", "torch.nn.functional"]
 
 
 def main():

@@ -34,6 +34,14 @@ def g(name):
     return G["_g"][name]
 
 
+def LY_src(ly):
+    return ly_src_asr(ly)
+
+
+def ly_src_asr(ly):
+    return ly is not None and getattr(ly, "source", "user") == "asr"
+
+
 def lyric_lane_height(view, has_lyrics):
     if not has_lyrics or not view.get("lyrics", True):
         return 0
@@ -134,22 +142,66 @@ class LyricsMixin:
         self._lyric_job = None           # 読みを調べている途中 (別の処理で)
         self._lyric_rects = []           # [(Rect, 最初の音の番号, 単位)]
         self._lyric_hits_cache = {}
+        self.asr = None                  # AI の聞き取り結果 (asr.json)
+        self._asr_job = None             # 聞き取り (ダウンロード) の途中
+
+    # 設定 (Shell が settings_io = (読む, 書く) を入れる)
+    def _sget(self, k, d=None):
+        io = getattr(self, "settings_io", None)
+        return io[0](k, d) if io else d
+
+    def _sset(self, k, v):
+        io = getattr(self, "settings_io", None)
+        if io:
+            io[1](k, v)
 
     # ---------- 保存・読み込み ----------
     def _lyrics_path(self):
         return os.path.join(self.song_dir, "lyrics.json") if self.song_dir else None
 
+    def _asr_path(self):
+        return os.path.join(self.song_dir, "asr.json") if self.song_dir else None
+
+    def _vocals_path(self):
+        p = os.path.join(self.song_dir, "vocals.wav") if self.song_dir else None
+        return p if p and os.path.exists(p) else None
+
     def load_lyrics(self):
         self._lyrics_init()
+        ap = self._asr_path()
+        if ap and os.path.exists(ap):
+            try:
+                import lyrics_asr
+
+                self.asr = lyrics_asr.load(ap)
+            except Exception:
+                self.asr = None
         p = self._lyrics_path()
         if p and os.path.exists(p):
             try:
                 self.lyrics = LY.Lyrics.load(p)
                 if not self.lyrics.times and self.lyrics.mora_count():
-                    self.lyrics.assign(self.guide.notes, self.pb.duration)
+                    self._auto_times(self.lyrics)
             except Exception:
                 self.lyrics = None
         self._rebuild_background()
+        # 曲を開いたとき自動で聞き取る (モデルがあるときだけ。ダウンロードは手動のときだけ)
+        if self.asr is None and self._sget("asr_auto", False) and self._vocals_path():
+            try:
+                import lyrics_asr
+
+                if lyrics_asr.model_ready(self._sget("asr_model", "turbo")):
+                    self.asr_start(manual=False)
+            except Exception:
+                pass
+
+    def _auto_times(self, ly):
+        """1音ずつの時刻を自動で決める: 歌い出しの記録が無く、AI の聞き取りがあればそれを使う。
+        返り値: AI の聞き取りと一致した割合 (使わなかったときは None)"""
+        if self.asr and not any(l.get("t") is not None for l in ly.lines):
+            return ly.align_to_asr(self.asr, self.guide.notes, self.pb.duration)
+        ly.assign(self.guide.notes, self.pb.duration)
+        return None
 
     def save_lyrics(self):
         p = self._lyrics_path()
@@ -163,11 +215,12 @@ class LyricsMixin:
         if self.lyrics is not None:
             self._push_lyric_undo()
         self.lyrics = ly
-        if ly.mora_count():
-            ly.assign(self.guide.notes, self.pb.duration)
+        r = self._auto_times(ly) if ly.mora_count() else None
         self.save_lyrics()
         self.view["lyrics"] = True
         self._rebuild_background()
+        if r is not None:
+            msg += f"（AI の聞き取りと {round(r * 100)}% 一致）"
         self.show_toast(msg, 4.0)
 
     # ---------- 歌詞を入れる ----------
@@ -176,9 +229,12 @@ class LyricsMixin:
             self.show_toast("先に曲を開いてください")
             return
         cur = self.lyrics.text() if self.lyrics else ""
-        txt = ask_multiline("歌詞を入力・貼り付け",
-                            "歌詞を入力するか、貼り付けてください。1行ずつ改行で区切ります。\n"
-                            "（歌詞カードなどを見ながら。空の行は無視します）", cur)
+        prompt = ("歌詞を入力するか、貼り付けてください。1行ずつ改行で区切ります。\n"
+                  "（歌詞カードなどを見ながら。空の行は無視します）")
+        if LY_src(self.lyrics):
+            prompt = ("AI が聞き取った「仮の歌詞」です。正しい歌詞に直すか、全部消して貼り付けてください。\n"
+                      "OK を押すと、文字は入力したもの、タイミングは AI の聞き取りで合わせます。")
+        txt = ask_multiline("歌詞を入力・貼り付け", prompt, cur)
         if txt is None:
             return
         if not txt.strip():
@@ -187,7 +243,7 @@ class LyricsMixin:
         times = None
         if self.lyrics and txt.strip() == cur.strip():      # 文字が同じ: 記録した歌い出しはそのまま
             times = [l.get("t") for l in self.lyrics.lines]
-        self._start_lyric_job(lambda: LY.Lyrics.from_text(txt, times), "歌詞を入れました（お手本バーに自動で割り当てました）")
+        self._start_lyric_job(lambda: LY.Lyrics.from_text(txt, times), "歌詞を入れました（タイミングを自動で合わせました）")
 
     def lyrics_open_lrc(self):
         if not self.song_dir:
@@ -244,9 +300,10 @@ class LyricsMixin:
                 "自動で割り当て直す", "手で直したタイミングも、自動で割り当て直します。よろしいですか？\n（Ctrl+Z で元に戻せます）"):
             return
         self._push_lyric_undo()
-        self.lyrics.assign(self.guide.notes, self.pb.duration)
+        r = self._auto_times(self.lyrics)
         self.save_lyrics()
-        self.show_toast("歌詞をお手本バーに割り当て直しました", 2.5)
+        self.show_toast("歌詞のタイミングを自動で合わせ直しました" +
+                        (f"（AI の聞き取りと {round(r * 100)}% 一致）" if r is not None else "（お手本バーに割り当て）"), 3.0)
 
     def _start_lyric_job(self, make, msg):
         """読みを調べる (初回は部品の準備に時間がかかるので別の処理で)。"""
@@ -278,6 +335,143 @@ class LyricsMixin:
         if LY._tok_error:
             msg += "　※ふりがなを自動で調べられませんでした（右クリック → ふりがなを直す）"
         self._set_lyrics(job["result"], msg)
+
+    # ---------- AI で歌詞を聞き取る ----------
+    @staticmethod
+    def _asr_models():
+        try:
+            import lyrics_asr
+
+            return list(lyrics_asr.MODELS.items())
+        except Exception:
+            return []
+
+    @staticmethod
+    def _model_ready(n):
+        try:
+            import lyrics_asr
+
+            return lyrics_asr.model_ready(n)
+        except Exception:
+            return False
+
+    def asr_start(self, manual=True):
+        if self._asr_job:
+            return
+        voc = self._vocals_path()
+        if not voc:
+            self.show_toast("この曲の歌声のファイルが見つかりません（曲を開き直してください）", 3.0)
+            return
+        import lyrics_asr
+
+        name = self._sget("asr_model", "turbo")
+        info = lyrics_asr.MODELS.get(name) or lyrics_asr.MODELS["turbo"]
+        need_dl = not lyrics_asr.model_ready(name)
+        if need_dl:
+            if not manual:
+                return
+            if not ask_yesno("AI で歌詞を聞き取る",
+                             f"歌詞を聞き取る AI のモデル（{info['label']}）をダウンロードします。\n"
+                             f"初回だけ必要です（{info['mb']}MB ほど。回線によって数分〜十数分）。\n\n"
+                             "・聞き取りは、このパソコンの中だけで行います。\n"
+                             "・聞き取った歌詞は仮のものです。正しい歌詞を貼り付けると、\n"
+                             "  文字は入力したもの、タイミングは AI の聞き取り、で合わせます。\n\n"
+                             "ダウンロードしてよろしいですか？"):
+                return
+        elif manual and self.asr is not None:
+            if not ask_yesno("AI で歌詞を聞き取る", "この曲はもう聞き取ってあります。聞き取り直しますか？"):
+                return
+        job = {"frac": 0.0, "msg": "準備中…", "done": False, "error": None, "result": None, "cancel": False,
+               "manual": manual, "t0": time.time()}
+        use_gpu = bool(self._sget("use_gpu", True))
+        out = self._asr_path()
+
+        def prog(f, m):
+            job["frac"], job["msg"] = f, m
+
+        def run():
+            try:
+                if need_dl:
+                    lyrics_asr.download_model(name, prog, lambda: job["cancel"])
+                prog(0.0, "AI の部品を準備中…（初回は 1分ほど）")
+                lyrics_asr.load_whisper()
+                res = lyrics_asr.transcribe(voc, name, use_gpu, prog, lambda: job["cancel"])
+                lyrics_asr.save(out, res)
+                job["result"] = res
+            except lyrics_asr.Cancelled:
+                job["error"] = "cancel"
+            except Exception as e:
+                import traceback
+
+                traceback.print_exc()
+                job["error"] = f"{type(e).__name__}: {e}"
+            job["done"] = True
+
+        self._asr_job = job
+        threading.Thread(target=run, daemon=True).start()
+        if not manual:
+            self.show_toast("AI が歌詞を聞き取っています（裏で動きます。練習はそのまま続けられます）", 3.0)
+
+    def asr_cancel(self):
+        if self._asr_job:
+            self._asr_job["cancel"] = True
+            self._asr_job["msg"] = "中止しています…"
+
+    def _poll_asr_job(self):
+        job = self._asr_job
+        if not job or not job["done"]:
+            return
+        self._asr_job = None
+        if job["error"] == "cancel":
+            self.show_toast("AI の聞き取りを中止しました", 2.5)
+            return
+        if job["error"]:
+            self.show_toast(f"AI の聞き取りができませんでした：{job['error'][:120]}", 6.0)
+            return
+        self.asr = job["result"]
+        n = sum(len(s["words"]) for s in self.asr.get("segments", []))
+        if n == 0:
+            self.show_toast("AI が歌詞を聞き取れませんでした（歌声が小さい・英語が多い曲などは苦手です）", 5.0)
+            return
+        if self.lyrics is None or self.lyrics.source == "asr":
+            ly = LY.Lyrics.from_asr(self.asr)
+            if self.lyrics is not None:
+                self._push_lyric_undo()
+            self.lyrics = ly
+            ly.align_to_asr(self.asr, self.guide.notes, self.pb.duration)
+            self.save_lyrics()
+            self.view["lyrics"] = True
+            self._rebuild_background()
+            self.show_toast("AI が歌詞を聞き取りました（仮の歌詞です。「歌詞を入力・貼り付け」で正しい歌詞にすると、"
+                            "タイミングはそのままで文字が置き換わります）", 7.0)
+        else:
+            if self.lyrics.manual and not ask_yesno(
+                    "AI の聞き取り", "AI の聞き取りが終わりました。入力した歌詞のタイミングを、聞き取りに合わせ直しますか？\n"
+                                    "（手で直したタイミングも変わります。Ctrl+Z で元に戻せます）"):
+                self.show_toast("聞き取りを保存しました（歌詞 → AI の聞き取りでタイミングを合わせ直す、でいつでも使えます）", 4.0)
+                return
+            self._push_lyric_undo()
+            r = self.lyrics.align_to_asr(self.asr, self.guide.notes, self.pb.duration)
+            self.save_lyrics()
+            self.show_toast(f"入力した歌詞のタイミングを、AI の聞き取りに合わせました（{round(r * 100)}% 一致）", 4.0)
+
+    def _draw_asr_status(self, L):
+        job = self._asr_job
+        if not job:
+            return
+        pg, scr, F = self.pg, self.screen, self.fonts
+        el = int(time.time() - job["t0"])
+        s1 = F.render(job["msg"], 13, WHITE, bold=True)
+        s2 = F.render(f"経過 {el // 60}:{el % 60:02d}　中止：メニューの「歌詞」", 11, DIM)
+        w = max(s1.get_width(), s2.get_width(), 220) + 24
+        box = pg.Rect(L.left + 8, L.bottom - 66, w, 58)
+        pg.draw.rect(scr, PANEL, box, border_radius=8)
+        pg.draw.rect(scr, OUTLINE, box, 1, border_radius=8)
+        scr.blit(s1, (box.x + 12, box.y + 6))
+        bar = pg.Rect(box.x + 12, box.y + 28, w - 24, 6)
+        pg.draw.rect(scr, BG_DEEP, bar, border_radius=3)
+        pg.draw.rect(scr, ACCENT, (bar.x, bar.y, max(4, int(bar.width * job["frac"])), bar.height), border_radius=3)
+        scr.blit(s2, (box.x + 12, box.y + 38))
 
     # ---------- 行の歌い出しの記録 (タップ) ----------
     def lyrics_start_tap(self):
@@ -368,6 +562,19 @@ class LyricsMixin:
         items = [
             MenuItem("歌詞を入力・貼り付け…", self.lyrics_input, enabled=song),
             MenuItem("時間つき歌詞 (.lrc) を読み込む…", self.lyrics_open_lrc, enabled=song),
+            SEPARATOR,
+            MenuItem(lambda: "AI の聞き取りを中止する" if self._asr_job else
+                     ("AI で歌詞を聞き取る（この曲・聞き取り直す）…" if self.asr else "AI で歌詞を聞き取る（この曲）…"),
+                     lambda: self.asr_cancel() if self._asr_job else self.asr_start(manual=True),
+                     enabled=lambda: bool(self._asr_job) or self._vocals_path() is not None),
+            MenuItem("　AI の聞き取りでタイミングを合わせ直す", lambda: self.lyrics_reassign(),
+                     enabled=lambda: has() and self.asr is not None),
+            MenuItem("　曲を開いたとき自動で聞き取る", lambda: self._sset("asr_auto", not self._sget("asr_auto", False)),
+                     checked=lambda: self._sget("asr_auto", False)),
+        ] + [MenuItem((lambda n=n, m=m: f"　聞き取りの AI：{m['label']}" + ("（準備済み）" if self._model_ready(n) else "")),
+                      (lambda n=n: self._sset("asr_model", n)),
+                      checked=(lambda n=n: self._sget("asr_model", "turbo") == n))
+             for n, m in self._asr_models()] + [
             SEPARATOR,
             MenuItem(lambda: "歌い出しの記録をやめる" if self.lyric_tap is not None else "行の歌い出しを記録する（再生しながら Enter）",
                      lambda: self.stop_lyric_tap() if self.lyric_tap is not None else self.lyrics_start_tap(), enabled=has),
@@ -617,6 +824,8 @@ class LyricsMixin:
     def _draw_lyrics(self, L, now, bar_lines):
         pg, scr, F = self.pg, self.screen, self.fonts
         self._poll_lyric_job()
+        self._poll_asr_job()
+        self._draw_asr_status(L)
         self._lyric_rects = []
         if self.lyrics is None or not self.view.get("lyrics", True):
             return
@@ -626,7 +835,7 @@ class LyricsMixin:
         W = g("W")
         pg.draw.rect(scr, BG_DEEP, lane)
         pg.draw.line(scr, HAIR, (0, lane.y), (W, lane.y), 1)
-        lab = F.render("歌詞", 12, FAINT, bold=True)
+        lab = F.render("歌詞(AI)" if ly_src_asr(self.lyrics) else "歌詞", 12, FAINT, bold=True)
         scr.blit(lab, (L.left - lab.get_width() - 10, lane.centery - lab.get_height() // 2))
         clip = pg.Rect(L.left, lane.y + 1, W - L.left, lane.height - 1)
         scr.set_clip(clip)

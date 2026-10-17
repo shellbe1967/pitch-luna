@@ -24,6 +24,8 @@ FILES = [
     "fonts/NotoSansJP-Regular.otf", "fonts/NotoSansJP-Bold.otf", "fonts/LICENSE-NotoSansJP.txt",
     "assets/icon.png", "assets/icon.ico", "launcher.py",
     "lyrics.py", "lyrics_view.py", "vendor/Janome-0.5.0-py2.py3-none-any.whl", "vendor/README.txt",
+    "lyrics_asr.py", "vendor_lib.py", "vendor/openai_whisper-20250625-py3-none-any.zip",
+    "vendor/tiktoken-0.14.0-cp312-cp312-win_amd64.whl", "vendor/regex-2026.9.29-cp312-cp312-win_amd64.whl",
 ]
 
 # 必要なライブラリ (入っていなければアップデートのときに pip で入れる)

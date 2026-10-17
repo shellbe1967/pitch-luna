@@ -1,0 +1,69 @@
+name: 歌詞の部品の動作確認 (ビルド版にアップデートを重ねて試す)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["lyrics-test"]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 今配っているビルド版を受け取る
+        uses: actions/download-artifact@v4
+        with:
+          name: PitchLuna-1.1.0-windows
+          path: app
+          run-id: 38661019785
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: アップデートで入れ替わるファイルを重ねる (ヘルプ → アップデート と同じ状態)
+        shell: python
+        run: |
+          import json, shutil, os
+          m = json.load(open("version.json", encoding="utf-8"))
+          for rel in m["files"]:
+              dst = os.path.join("app", rel)
+              os.makedirs(os.path.dirname(dst), exist_ok=True)
+              shutil.copy2(rel, dst)
+          shutil.copy2("version.json", "app/version.json")
+          print(len(m["files"]), "files")
+
+      - name: テスト用の声を作る (Windows の読み上げ)
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Speech
+          $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+          $s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name + " " + $_.VoiceInfo.Culture }
+          $ja = $s.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -eq "ja-JP" } | Select-Object -First 1
+          $fmt = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(44100, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)
+          $s.SetOutputToWaveFile("$pwd\test.wav", $fmt)
+          if ($ja) { $s.SelectVoice($ja.VoiceInfo.Name); $s.Speak("風が吹く夜明けの街で、君を待っている。明日へ向かって歩いていこう。") }
+          else { $s.Speak("The wind is blowing in the town at dawn. I am waiting for you. Let us walk toward tomorrow.") }
+          $s.Dispose()
+          Get-Item test.wav
+
+      - name: 歌詞の動作確認 (PitchLuna.exe --lyrics-selftest)
+        shell: powershell
+        run: |
+          $p = Start-Process -FilePath "app\PitchLuna.exe" -ArgumentList "--lyrics-selftest", "$pwd\test.wav" -WorkingDirectory "app" -Wait -PassThru
+          if (Test-Path app\lyrics_selftest.json) { Get-Content app\lyrics_selftest.json -Encoding UTF8 }
+          if (Test-Path app\pitchluna_log.txt) { Get-Content app\pitchluna_log.txt -Encoding UTF8 -Tail 120 }
+          if ($p.ExitCode -ne 0) { throw "歌詞の動作確認に失敗 (exit $($p.ExitCode))" }
+
+      - name: 結果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyrics-selftest
+          path: |
+            app/lyrics_selftest.json
+            app/pitchluna_log.txt
+          if-no-files-found: ignore

@@ -234,6 +234,7 @@ class Lyrics:
         self.lines = []          # [{"text": 行, "t": 歌い出し (秒) or None, "units": [...]}]
         self.times = []          # 1音ごとの (始まり, 終わり)。歌詞の最初の音から順番
         self.manual = False      # 手で直したか
+        self.source = "user"     # "user" = 入力した歌詞 / "asr" = AI が聞き取った歌詞 (仮)
 
     # --- 作る ---
     @classmethod
@@ -268,7 +269,8 @@ class Lyrics:
 
     # --- 保存 ---
     def to_dict(self):
-        return {"version": 1, "lines": self.lines, "times": [list(x) for x in self.times], "manual": self.manual}
+        return {"version": 1, "lines": self.lines, "times": [list(x) for x in self.times], "manual": self.manual,
+                "source": self.source}
 
     @classmethod
     def from_dict(cls, d):
@@ -276,6 +278,7 @@ class Lyrics:
         ly.lines = d.get("lines", [])
         ly.times = [tuple(x) for x in d.get("times", [])]
         ly.manual = bool(d.get("manual"))
+        ly.source = d.get("source", "user")
         if len(ly.times) != ly.mora_count():
             ly.times = []
         return ly
@@ -437,6 +440,102 @@ class Lyrics:
                 spans[group[i - 1]] = (ph[k][0], ph[j - 1][1])
                 i, j = i - 1, k
 
+    def align_to_asr(self, asr, notes, duration=None):
+        """AI の聞き取りの時刻を手がかりに、1音ずつの時刻を決める。
+        聞き取りと同じ音 (2音以上続けて一致) はその時刻、残りはお手本バーで埋める。返り値: 一致した割合"""
+        mine = [norm_mora(mm) for l in self.lines for u in l["units"] for mm in u["m"]]
+        heard = asr_morae(asr)
+        if not mine or not heard:
+            self.assign(notes, duration)
+            return 0.0
+        pairs = _align(mine, [h[0] for h in heard])
+        # ぽつんと 1音だけ一致したものは、たまたまの可能性があるので使わない
+        keep = []
+        for k, (i, j) in enumerate(pairs):
+            nb = (k > 0 and pairs[k - 1] == (i - 1, j - 1)) or (k + 1 < len(pairs) and pairs[k + 1] == (i + 1, j + 1))
+            if nb:
+                keep.append((i, j))
+        anchors = {}
+        last_t = -1.0
+        for i, j in keep:
+            t0, t1 = heard[j][1], heard[j][2]
+            if t0 >= last_t:                          # 時刻が逆戻りするものは使わない
+                anchors[i] = (t0, t1)
+                last_t = t0
+        if not anchors:
+            self.assign(notes, duration)
+            return 0.0
+        ns = sorted(((float(n["start"]), float(n["end"])) for n in notes if n["end"] > n["start"]), key=lambda x: x[0])
+        starts = [a for a, _ in ns]
+        import bisect
+
+        def snap(t):                                  # 近くにお手本バーの頭があれば合わせる
+            k = bisect.bisect_left(starts, t)
+            best = None
+            for c in (k - 1, k):
+                if 0 <= c < len(starts) and abs(starts[c] - t) <= 0.12:
+                    if best is None or abs(starts[c] - t) < abs(best - t):
+                        best = starts[c]
+            return best if best is not None else t
+        N = len(mine)
+        times = [None] * N
+        for i, (a, b) in anchors.items():
+            times[i] = [snap(a), b]
+        # 一致しなかった所: 前後の一致した音のあいだを、お手本バーで埋める
+        idx = sorted(anchors)
+        gaps = []
+        if idx[0] > 0:
+            gaps.append((0, idx[0]))
+        for p, q in zip(idx, idx[1:]):
+            if q - p > 1:
+                gaps.append((p + 1, q))
+        if idx[-1] < N - 1:
+            gaps.append((idx[-1] + 1, N))
+        for g0, g1 in gaps:
+            cnt = g1 - g0
+            lo = times[g0 - 1][1] if g0 > 0 else None
+            hi = times[g1][0] if g1 < N else None
+            if lo is None:                            # 最初の一致より前: その直前のバーを使う
+                cand = [n for n in ns if n[1] <= hi + 0.02]
+                win = cand[-max(cnt, 1):] if cand else []
+                lo = win[0][0] if win else max(0.0, hi - 0.4 * cnt)
+            if hi is None:                            # 最後の一致より後: その直後のバーを使う
+                cand = [n for n in ns if n[0] >= lo - 0.02]
+                win = cand[:max(cnt, 1)] if cand else []
+                hi = win[-1][1] if win else lo + 0.4 * cnt
+            inside = [n for n in ns if n[0] >= lo - 0.03 and n[1] <= hi + 0.03 and n[1] > n[0]]
+            if inside:
+                fit = _fit_morae([(max(a, lo), min(b, hi)) for a, b in inside], cnt)
+            else:
+                d = max(0.05, (hi - lo) / cnt)
+                fit = [(lo + r * d, lo + (r + 1) * d) for r in range(cnt)]
+            for r, (a, b) in enumerate(fit):
+                times[g0 + r] = [a, b]
+        # 重なり・逆戻りを直す
+        for i in range(N):
+            a, b = times[i]
+            if i > 0 and a < times[i - 1][0] + 0.02:
+                a = times[i - 1][0] + 0.02
+            times[i] = [a, max(b, a + 0.03)]
+        for i in range(N - 1):
+            if times[i][1] > times[i + 1][0]:
+                times[i][1] = max(times[i][0] + 0.02, times[i + 1][0])
+        self.times = [(round(a, 3), round(b, 3)) for a, b in times]
+        self.manual = False
+        return len(anchors) / N
+
+    @classmethod
+    def from_asr(cls, asr):
+        """AI が聞き取った歌詞から作る (仮の歌詞)。"""
+        rows = []
+        for seg in asr.get("segments", []):
+            t = "".join(w["w"] for w in seg.get("words") or []).strip()
+            if t:
+                rows.append(t)
+        ly = cls.from_text("\n".join(rows))
+        ly.source = "asr"
+        return ly
+
     # ---------- 手で直す ----------
     def move_mora(self, k, t0):
         """k 番目の音の始まりを t0 にする (前後の音とは重ならない)。"""
@@ -520,6 +619,88 @@ class Lyrics:
             self.times[last - 1] = (a, min(b, self.times[last][0]))
         self.manual = True
         return True
+
+
+# ---------- AI の聞き取り (asr.json) との照らし合わせ ----------
+def norm_mora(m):
+    """比べるための形: ひらがな・「っ」を除く・を→お など。"""
+    m = kata_to_hira(m).replace("っ", "").replace("ッ", "")
+    m = m.replace("を", "お").replace("ぢ", "じ").replace("づ", "ず")
+    return m.lower() if m.isascii() else m
+
+
+def asr_morae(asr):
+    """聞き取り結果 → [(1音, 始まり, 終わり)]  (言葉の時刻を、その言葉の音の数で分ける)"""
+    out = []
+    for seg in asr.get("segments", []):
+        words = seg.get("words") or []
+        text = "".join(w["w"] for w in words)
+        if not text:
+            continue
+        ct = []                                      # 1文字ずつの (始まり, 終わり)
+        for w in words:
+            n = max(1, len(w["w"]))
+            d = (w["e"] - w["s"]) / n
+            ct += [(w["s"] + i * d, w["s"] + (i + 1) * d) for i in range(len(w["w"]))]
+        pos = 0
+        for u in make_units(text):
+            ln = len(u["s"]) + len(u.get("k", ""))
+            span = ct[pos:pos + ln]
+            pos += ln
+            if not u["m"] or not span:
+                continue
+            a, b = span[0][0], span[-1][1]
+            d = (b - a) / len(u["m"])
+            for i, mm in enumerate(u["m"]):
+                out.append((norm_mora(mm), a + i * d, a + (i + 1) * d))
+    return out
+
+
+def _align(xs, ys):
+    """2つの並びを比べて、同じ音の組 [(xのi, yのj)] を返す (順番は変えない)。"""
+    n, m = len(xs), len(ys)
+    if n == 0 or m == 0:
+        return []
+    INF = 10 ** 9
+    # 似ている音 (母音が同じなど) も少しだけ許す
+    def cost(a, b):
+        if a == b:
+            return 0
+        return 2
+    prev = list(range(m + 1))
+    back = [bytearray(m + 1) for _ in range(n + 1)]
+    for j in range(1, m + 1):
+        back[0][j] = 2
+    for i in range(1, n + 1):
+        cur = [i] + [0] * m
+        bi = back[i]
+        bi[0] = 1
+        xi = xs[i - 1]
+        for j in range(1, m + 1):
+            d = prev[j - 1] + cost(xi, ys[j - 1])
+            u = prev[j] + 1
+            l = cur[j - 1] + 1
+            if d <= u and d <= l:
+                cur[j], bi[j] = d, 0
+            elif u <= l:
+                cur[j], bi[j] = u, 1
+            else:
+                cur[j], bi[j] = l, 2
+        prev = cur
+    pairs = []
+    i, j = n, m
+    while i > 0 and j > 0:
+        b = back[i][j]
+        if b == 0:
+            if xs[i - 1] == ys[j - 1]:
+                pairs.append((i - 1, j - 1))
+            i, j = i - 1, j - 1
+        elif b == 1:
+            i -= 1
+        else:
+            j -= 1
+    pairs.reverse()
+    return pairs
 
 
 def _fit_morae(notes, m):
