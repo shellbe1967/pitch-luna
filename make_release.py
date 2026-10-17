@@ -23,6 +23,7 @@ FILES = [
     "setup.bat", "setup_check.py", "test_mic_pitch.py", "取扱説明書.txt",
     "fonts/NotoSansJP-Regular.otf", "fonts/NotoSansJP-Bold.otf", "fonts/LICENSE-NotoSansJP.txt",
     "assets/icon.png", "assets/icon.ico", "launcher.py",
+    "lyrics.py", "lyrics_view.py", "vendor/Janome-0.5.0-py2.py3-none-any.whl", "vendor/README.txt",
 ]
 
 # 必要なライブラリ (入っていなければアップデートのときに pip で入れる)

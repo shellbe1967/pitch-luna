@@ -11,14 +11,17 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = ["singing_trainer.py", "audio_processor.py", "audio_fx.py", "beat_analyzer.py", "key_analyzer.py",
-       "midi_loader.py", "library.py", "pitch_core.py", "ui_menu.py", "theme.py", "updater.py"]
+       "midi_loader.py", "library.py", "pitch_core.py", "ui_menu.py", "theme.py", "updater.py",
+       "lyrics.py", "lyrics_view.py"]
 OWN = {os.path.splitext(f)[0] for f in os.listdir(ROOT) if f.endswith(".py")}
 # 本体からは直接 import していないが、中で使われるもの
 EXTRA = ["tkinter.filedialog", "tkinter.simpledialog", "pygame._sdl2.audio", "soundfile", "audioread",
          "demucs.apply", "demucs.pretrained", "demucs.htdemucs", "demucs.hdemucs", "demucs.demucs",
          "demucs.states", "demucs.repo", "torchcrepe", "torchaudio", "julius", "openunmix", "einops",
          "librosa", "librosa.core", "librosa.feature", "numba", "concurrent.futures", "webbrowser",
-         "http.client", "ssl", "email.utils"]
+         "http.client", "ssl", "email.utils",
+         # 歌詞の読み (Janome: vendor の whl を実行時に展開して使う) が使う標準ライブラリ
+         "mmap", "gzip", "pickle", "pkgutil", "unicodedata", "zlib", "base64", "logging", "struct", "zipfile"]
 
 
 def main():

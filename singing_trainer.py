@@ -51,6 +51,10 @@ import numpy as np
 
 from pitch_core import YinPitchDetector, hz_to_midi, midi_to_doremi, midi_to_english, rms_dbfs
 from ui_menu import SEPARATOR, Button, MenuBar, MenuItem, PopupMenu, draw_tooltip
+import lyrics_view
+from lyrics_view import LyricsMixin, lyric_lane_height
+
+lyrics_view.bind(globals())              # 歌詞の表示から、この画面の変数 (幅・高さなど) を使えるように
 
 APP_TITLE = "Pitch Luna — If Vocal"
 W, H = 1280, 720          # 現在の描画サイズ (ウィンドウに合わせて変わる)
@@ -60,6 +64,7 @@ MENU_H = 28               # メニューバー
 HEADER_H = MENU_H + 112   # メニューバー + 曲名・キー・情報
 PROGRESS_H = 10
 FOOTER_H = 48             # 下のツールバー (クリックで操作)
+LYRIC_H = 0               # 楽譜の下の「歌詞の段」の高さ (歌詞があって表示するとき)
 LABEL_W = 92
 PX_PER_SEC = 160          # 横方向: 1秒あたりのピクセル数
 PLAYHEAD_RATIO = 0.30     # 現在位置の線を左から何割の位置に置くか
@@ -157,6 +162,10 @@ VIEW_DEFAULT = {
     "vmode": "bar",       # タテ線: "bar" = 小節と拍 (解析) / "sec" = 秒ごと
     "beat_lines": True,   # 小節の中の拍の点線
     "toolbar2": True,     # 下の2段目 (練習ツール: A-B ループ・速度・キー・録音・編集)
+    "lyrics": True,       # 歌詞の段 (歌詞を入れた曲だけ)
+    "ruby": True,         # 歌詞のふりがな
+    "lyric_color": True,  # 歌った歌詞の色を、音程が合っていたかで変える
+    "lyric_size": 20,     # 歌詞の文字の大きさ
 }
 VGRID_CHOICES = (0.5, 1.0, 2.0, 5.0)
 BPB_CHOICES = (2, 3, 4, 6)
@@ -1202,7 +1211,7 @@ class Layout:
     def __init__(self, lo, hi, width, height):
         self.lo, self.hi = lo, hi
         self.top = HEADER_H + PROGRESS_H
-        self.bottom = height - FOOTER_H
+        self.bottom = height - FOOTER_H - LYRIC_H
         self.left = LABEL_W
         self.right = width
         self.row_h = (self.bottom - self.top) / (hi - lo + 1)
@@ -1227,7 +1236,7 @@ class _Key:
         self.mod = 0
 
 
-class Trainer:
+class Trainer(LyricsMixin):
     def __init__(self, pg, screen, fonts, title, guide, key_info, playback, mic, skip_sec=5, alt_guide=None,
                  on_offset_change=None):
         self.pg, self.screen, self.fonts = pg, screen, fonts
@@ -1303,6 +1312,7 @@ class Trainer:
         self.show_help = False
         self.requests = []          # main に頼む操作: "open_song" / "open_midi" / "fullscreen" / "quit"
         self.is_fullscreen = lambda: False
+        self._lyrics_init()
         self.menu = MenuBar(pg, fonts, self._build_menus(), height=MENU_H)
         self._rebuild_background()
 
@@ -1335,8 +1345,9 @@ class Trainer:
 
     # ---------- 背景 (ドレミの行とラベル) ----------
     def _update_layout(self):
-        global FOOTER_H
+        global FOOTER_H, LYRIC_H
         FOOTER_H = 92 if self.view.get("toolbar2", True) else 48     # 2段目 (練習ツール) の分
+        LYRIC_H = lyric_lane_height(self.view, getattr(self, "lyrics", None) is not None)
         semis = self.view["semis"]
         lo = self.v_center - semis / 2
         self.layout = Layout(lo, lo + semis, W, H)
@@ -1989,6 +2000,9 @@ class Trainer:
 
     def _restore(self, state):
         gid, notes, off = state
+        if gid == "lyrics":                     # 歌詞の変更
+            self._restore_lyrics(notes)
+            return True
         if gid != id(self.guide):
             return False
         self.guide.base_notes = notes
@@ -2002,19 +2016,23 @@ class Trainer:
             self.show_toast("元に戻す操作はありません")
             return
         st = self._undo.pop()
-        self._redo.append((id(self.guide), self._snapshot(), self.guide.offset))
+        lyr = st[0] == "lyrics"
+        self._redo.append(self._lyric_state() if lyr else (id(self.guide), self._snapshot(), self.guide.offset))
         if self._restore(st):
-            self.edit_dirty = True
-            self.show_toast("元に戻しました (Ctrl+Z)")
+            if not lyr:
+                self.edit_dirty = True
+            self.show_toast("元に戻しました (Ctrl+Z)" + ("　…歌詞" if lyr else ""))
 
     def redo(self):
         if not self._redo:
             return
         st = self._redo.pop()
-        self._undo.append((id(self.guide), self._snapshot(), self.guide.offset))
+        lyr = st[0] == "lyrics"
+        self._undo.append(self._lyric_state() if lyr else (id(self.guide), self._snapshot(), self.guide.offset))
         if self._restore(st):
-            self.edit_dirty = True
-            self.show_toast("やり直しました (Ctrl+Y)")
+            if not lyr:
+                self.edit_dirty = True
+            self.show_toast("やり直しました (Ctrl+Y)" + ("　…歌詞" if lyr else ""))
 
     def _base_index(self, i):
         """表示用の番号 → base_notes の番号 (どちらも同じ並び)。"""
@@ -2178,6 +2196,9 @@ class Trainer:
         ctrl = bool(mod & getattr(pg, "KMOD_CTRL", 0))
         shift = bool(mod & getattr(pg, "KMOD_SHIFT", 0))
         K = lambda name: getattr(pg, name, -999)
+        alt = bool(mod & getattr(pg, "KMOD_ALT", 0))
+        if self.lyric_handle_key(k, ctrl or shift or alt):     # 歌詞 (K・歌い出しの記録の Enter)
+            return
         # --- 編集 (どのモードでも Ctrl+Z / Y / S は使える) ---
         if ctrl and k == K("K_z"):
             (self.redo if shift else self.undo)()
@@ -2622,6 +2643,7 @@ class Trainer:
                 MenuItem("採点をリセット", lambda: K(pg.K_r), "R"),
                 SEPARATOR,
             ] + self._guide_items()),
+            ("歌詞", self._lyrics_items),
             ("表示", [
                 MenuItem("全画面表示", lambda: self.requests.append("fullscreen"), "F11", checked=lambda: self.is_fullscreen()),
                 MenuItem("お手本の細い音程線", lambda: K(pg.K_p), "P", checked=lambda: self.show_fine),
@@ -2809,6 +2831,15 @@ class Trainer:
                 self.popup = None
             return
         L = self.layout
+        if (self.lyrics is not None and not self.menu.is_open and self._lyric_lane_rect().collidepoint(pos)
+                and not any(r.collidepoint(pos) for r in self._panel_rects())
+                and not any(b.rect.collidepoint(pos) for b in self.buttons)):
+            now_c = time.perf_counter()
+            lt, lp = self._last_click
+            double = now_c - lt < 0.4 and abs(pos[0] - lp[0]) <= 6 and abs(pos[1] - lp[1]) <= 6
+            self._last_click = (0.0, (-99, -99)) if double else (now_c, pos)
+            if self.lyric_mouse_down(pos, button, double):    # 歌詞の段
+                return
         in_score = L.top <= pos[1] <= L.bottom and pos[0] < L.right
         if button == 3:                         # 右クリック: 楽譜の上ならグリッドのメニュー
             if self.menu.is_open:
@@ -2905,6 +2936,8 @@ class Trainer:
                 self.on_view_change()
         if not d:
             return
+        if self.lyric_mouse_up(d):
+            return
         if d["kind"] in ("loopA", "loopB"):
             if d["moved"]:
                 self.loop_on = self.loop_a is not None and self.loop_b is not None
@@ -2960,6 +2993,8 @@ class Trainer:
         self.menu.on_mouse_move(pos)
         if self.popup is not None:
             self.popup.on_mouse_move(pos)
+        if self.lyric_mouse_move(pos):          # 歌詞の文字をドラッグ中
+            return
         d = self.drag
         if d and d["kind"] in ("loopA", "loopB"):
             d["moved"] = True
@@ -3292,6 +3327,7 @@ class Trainer:
                 self.score_total += 1
                 self.score_hit += abs(cents) <= 50
         scr.set_clip(None)
+        self._draw_lyrics(L, now, bar_lines)    # 楽譜の下の歌詞の段
         if cur is not None and L.lo <= round(cur) <= L.hi:     # 左の音名: 今歌っている音を強調
             m = round(cur)
             yc = round(L.y_of(m))
@@ -3329,6 +3365,10 @@ class Trainer:
               and not any(r.collidepoint(self.mouse) for r in self._panel_rects())):
             draw_tooltip(pg, scr, F, "左右にドラッグ / ホイール：拡大・縮小　ダブルクリック：ここを1拍目に　Shift+ドラッグ：小節線を移動　右クリック：メニュー",
                          (self.mouse[0], self._ruler_rect().bottom + 34))
+        elif (not quiet and not self.drag and self._lyric_rects and self._lyric_lane_rect().collidepoint(self.mouse)
+              and self.mouse[0] > self.layout.left):
+            draw_tooltip(pg, scr, F, "文字をドラッグ：タイミング　Shift+ドラッグ：行の後ろも一緒に　ダブルクリック：ふりがな　右クリック：メニュー",
+                         (self.mouse[0], self._lyric_lane_rect().y - 10))
         elif self._progress_rect().collidepoint(self.mouse) and not self.menu.is_open and self.pb.duration:
             draw_tooltip(pg, scr, F, fmt_time(self.mouse[0] / W * self.pb.duration), (self.mouse[0], HEADER_H - 2))
         if self.show_help:
@@ -4215,6 +4255,7 @@ class Trainer:
             ("楽譜の上の目盛り (小節番号)", "左右にドラッグ / ホイール：拡大・縮小　ダブルクリック：1拍目に"),
             ("Shift + 目盛りをドラッグ", "小節線を移動"),
             ("楽譜を右クリック / Shift+ドラッグ", "メニュー / A-B ループの範囲を選ぶ"),
+            ("歌詞の文字をドラッグ / 右クリック", "タイミングを直す (Shift：行の後ろも) / ふりがな・1つ前後のバーへ"),
             ("キーボード", ""),
             ("Space", "再生 / 一時停止"), ("← →", f"巻き戻し / スキップ（{self.skip_sec}秒）"),
             ("↑ ↓", "スキップ間隔"), ("V", "ボーカル ON / OFF"), ("[ ]", "お手本のオクターブ"),
@@ -4222,6 +4263,7 @@ class Trainer:
             ("P / R / Home", "音程線 / 採点リセット / 最初から"), ("G / C", "グリッドの調整 / 音階を中央に"),
             ("A / B / L", "A 点 / B 点 / A-B ループ ON・OFF"), ("Shift+← → / Shift+↑ ↓", "再生速度 / キー (半音)"),
             ("T / Y", "録音モード / 最後のテイクを再生"), ("E", "お手本の編集 (Delete・↑↓・Ctrl+Z・Ctrl+S)"), ("F11 / F1 / Ctrl+L", "全画面 / この画面 / 曲の一覧"),
+            ("K / Enter", "歌詞の表示 ON・OFF / 歌い出しの記録中：今の行の歌い出し"),
         ]
         rh = int(min(26, (H - MENU_H - 70) / len(rows)))
         bw, bh = min(W - 40, 800), 40 + len(rows) * rh
@@ -4759,6 +4801,7 @@ class Shell:
         self.trainer.song_path = ld["song"]
         self.trainer.song_dir = res["dir"]
         self.trainer.load_practice()            # この曲の速度・キー・A-B・編集版
+        self.trainer.load_lyrics()              # この曲の歌詞
         self.trainer.show_toast("Space で再生スタート！")
         self.mic.clear()
         self.libview.checker.refresh(ld["song"])
@@ -4959,6 +5002,8 @@ class Shell:
                     view.menu.close()
                 elif mode == "practice" and self.trainer.popup is not None:
                     self.trainer.popup = None
+                elif mode == "practice" and self.trainer.lyric_tap is not None:
+                    self.trainer.stop_lyric_tap()       # 歌い出しの記録を終わる
                 elif mode == "practice" and self.trainer.edit_mode:
                     if self.trainer.sel:
                         self.trainer.sel.clear()        # まず選択を外す

@@ -23,3 +23,6 @@ selftest_result.json
 pitchluna_log.txt
 _selftest/
 build.json
+
+# 歌詞の読みの部品 (初回に vendor の whl から展開される)
+_lib/

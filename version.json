@@ -1,16 +1,18 @@
 {
  "name": "Pitch Luna — If Vocal",
- "version": "1.1.0",
- "date": "2026-10-15",
+ "version": "1.2.0",
+ "date": "2026-10-17",
  "notes": [
-  "ビルド版 (PitchLuna.exe) に対応（Python なしでダブルクリックで起動）",
-  "ウィンドウに三日月と音符のアイコン",
-  "取扱説明書にビルド版の使い方を追加"
+  "歌詞の表示を追加（楽譜の下に歌詞の段。カラオケのように色が変わる）",
+  "歌詞を貼り付けると、ふりがなを自動で調べてお手本バーに1音ずつ割り当て",
+  "行の歌い出しを Enter で記録して、タイミングを合わせる機能",
+  "歌詞の文字をドラッグ・右クリックでタイミングやふりがなを直せる",
+  "時間つき歌詞 (.lrc) の読み込み・保存"
  ],
  "files": {
   "singing_trainer.py": {
-   "sha256": "b1f8bea3e7fafb7b4f499c4bd9d89801300be7b6c20476a2788368aebbb831b9",
-   "size": 252231
+   "sha256": "f22cff3100128532b43c749494c78a451859a46e41cd1d4402b61272e506eb5d",
+   "size": 255381
   },
   "audio_processor.py": {
    "sha256": "9b86adb230ecad6610b1e28bd5dd4054a5a8493eca4f80464937a2d2e14554a0",
@@ -65,8 +67,8 @@
    "size": 12513
   },
   "取扱説明書.txt": {
-   "sha256": "d7f96c285b9eec7c4ad1860936024126d7661a74e9eea611d91bedcaa4fa2a92",
-   "size": 46308
+   "sha256": "79e20505277fd6c9206f8f95b4a9d2c2c3fda002888be31ae79af93ac1d8b7a0",
+   "size": 51918
   },
   "fonts/NotoSansJP-Regular.otf": {
    "sha256": "dff723ba59d57d136764a04b9b2d03205544f7cd785a711442d6d2d085ac5073",
@@ -91,6 +93,22 @@
   "launcher.py": {
    "sha256": "67f91ca0e54b13bb74db5e8c3568110d38c3abe05735599db84b70edfe55e3a8",
    "size": 8134
+  },
+  "lyrics.py": {
+   "sha256": "d4fbe8858b4a189590c60b522ff25ba12c2cf63ce3ecd6ce4ff67566a6a1a054",
+   "size": 22739
+  },
+  "lyrics_view.py": {
+   "sha256": "1acf4e2f1561ad138b211fae675183f6913b41650d587b37f08323f986b4e251",
+   "size": 30594
+  },
+  "vendor/Janome-0.5.0-py2.py3-none-any.whl": {
+   "sha256": "d098670394a77881ce2f6b7d696c0ea5ff74c0c8cf74a8a882159ec82c0e6dc7",
+   "size": 19654103
+  },
+  "vendor/README.txt": {
+   "sha256": "538ce3a68eec526060a32a6a992df7cdd5cb05814152c9c7049829c31ed402dd",
+   "size": 745
   }
  },
  "requirements": [
@@ -112,6 +130,15 @@
   }
  ],
  "history": [
+  {
+   "version": "1.1.0",
+   "date": "2026-10-15",
+   "notes": [
+    "ビルド版 (PitchLuna.exe) に対応（Python なしでダブルクリックで起動）",
+    "ウィンドウに三日月と音符のアイコン",
+    "取扱説明書にビルド版の使い方を追加"
+   ]
+  },
   {
    "version": "1.0.0",
    "date": "2026-10-15",
