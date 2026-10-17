@@ -161,7 +161,8 @@ def transcribe(vocals_path, name="turbo", use_gpu=True, progress=None, cancel=No
     dur = len(audio) / 16000.0
 
     # 進み具合を受け取る (whisper の中の tqdm を差し替える)
-    import whisper.transcribe as wt
+    import whisper.transcribe  # noqa: F401  (whisper.transcribe は関数と同じ名前なので、モジュールは sys.modules から取る)
+    wt = sys.modules["whisper.transcribe"]
 
     class _Bar:
         def __init__(self, total=None, **k):

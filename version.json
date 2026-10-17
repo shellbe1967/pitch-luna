@@ -65,8 +65,8 @@
    "size": 12513
   },
   "取扱説明書.txt": {
-   "sha256": "79e20505277fd6c9206f8f95b4a9d2c2c3fda002888be31ae79af93ac1d8b7a0",
-   "size": 51918
+   "sha256": "fcab9c36ac462b2d4673bf4c6df913f9de60461d5bd3e2bca7b9424e5850216c",
+   "size": 54197
   },
   "fonts/NotoSansJP-Regular.otf": {
    "sha256": "dff723ba59d57d136764a04b9b2d03205544f7cd785a711442d6d2d085ac5073",
@@ -105,12 +105,12 @@
    "size": 19654103
   },
   "vendor/README.txt": {
-   "sha256": "538ce3a68eec526060a32a6a992df7cdd5cb05814152c9c7049829c31ed402dd",
-   "size": 745
+   "sha256": "10afab6a01c1304e687b8ae990ed02cf164498eda124b6b79d07eb276256a6c1",
+   "size": 1539
   },
   "lyrics_asr.py": {
-   "sha256": "7322cbdcc19e11ecd8adc8d59541d528cebcd21d2b3449eea2ce0d150994f988",
-   "size": 8606
+   "sha256": "d070e17421458f00c2781c2f57d440a0517f42f0861881df89c2f09d81e7df79",
+   "size": 8759
   },
   "vendor_lib.py": {
    "sha256": "877165b96a496119edf66a16f7557fa666b44d0fcc02cc3884c987021c4614ba",
