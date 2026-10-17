@@ -36,19 +36,20 @@ jobs:
           shutil.copy2("version.json", "app/version.json")
           print(len(m["files"]), "files")
 
-      - name: テスト用の声を作る (Windows の読み上げ)
-        shell: powershell
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: テスト用の声 (Whisper のテスト用の英語の音声) を WAV にする
+        shell: python
         run: |
-          Add-Type -AssemblyName System.Speech
-          $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
-          $s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name + " " + $_.VoiceInfo.Culture }
-          $ja = $s.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -eq "ja-JP" } | Select-Object -First 1
-          $fmt = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(44100, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)
-          $s.SetOutputToWaveFile("$pwd\test.wav", $fmt)
-          if ($ja) { $s.SelectVoice($ja.VoiceInfo.Name); $s.Speak("風が吹く夜明けの街で、君を待っている。明日へ向かって歩いていこう。") }
-          else { $s.Speak("The wind is blowing in the town at dawn. I am waiting for you. Let us walk toward tomorrow.") }
-          $s.Dispose()
-          Get-Item test.wav
+          import subprocess, sys, urllib.request
+          subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "soundfile", "numpy"])
+          import soundfile as sf
+          urllib.request.urlretrieve("https://github.com/openai/whisper/raw/main/tests/jfk.flac", "jfk.flac")
+          y, sr = sf.read("jfk.flac")
+          sf.write("test.wav", y, sr, subtype="PCM_16")
+          print(len(y) / sr, "sec", sr)
 
       - name: 歌詞の動作確認 (PitchLuna.exe --lyrics-selftest)
         shell: powershell
