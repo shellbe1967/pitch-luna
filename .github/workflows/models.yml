@@ -1,0 +1,39 @@
+name: 歌詞の聞き取り AI モデルを Releases に置く (予備のダウンロード先)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["models"]
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: OpenAI の公開場所からダウンロード (確認用の値で確かめる)
+        run: |
+          set -e
+          get() {
+            url="$1"; name=$(basename "$url"); sha=$(basename "$(dirname "$url")")
+            curl -fL --retry 3 -o "$name" "$url"
+            echo "$sha  $name" | sha256sum -c -
+            ls -l "$name"
+          }
+          get https://openaipublic.azureedge.net/main/whisper/models/9ecf779972d90ba49c06d968637d720dd632c55bbf19d441fb42bf17a411e794/small.pt
+          get https://openaipublic.azureedge.net/main/whisper/models/aff26ae408abcba5fbf8813c21e62b0941638c5f6eebfb145be0c9839262a19a/large-v3-turbo.pt
+
+      - name: Releases (whisper-models) に置く
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag=whisper-models
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "歌詞の聞き取り AI モデル (Whisper)" --latest=false --target "${{ github.sha }}" \
+              --notes "Pitch Luna の「AI で歌詞を聞き取る」が使うモデルの予備のダウンロード先です（ソフトが自動でダウンロードします）。OpenAI Whisper（MIT License）。"
+          fi
+          gh release upload "$tag" small.pt large-v3-turbo.pt --clobber
+          gh release view "$tag"
