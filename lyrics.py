@@ -14,7 +14,6 @@ import os
 import re
 import sys
 import threading
-import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 JANOME_WHL = os.path.join(HERE, "vendor", "Janome-0.5.0-py2.py3-none-any.whl")
@@ -192,7 +191,13 @@ def _add_plain(units, s):
 
 def set_ruby(unit, ruby):
     """ふりがなを直す (1音ずつの区切りも作り直す)。"""
-    ruby = kata_to_hira(unicodedata.normalize("NFKC", ruby).strip())
+    try:
+        import unicodedata
+
+        ruby = unicodedata.normalize("NFKC", ruby)
+    except Exception:
+        pass
+    ruby = kata_to_hira(ruby.strip())
     unit["r"] = ruby if ruby and ruby != unit["s"] else ""
     unit["m"] = split_morae(ruby) if ruby else ([unit["s"]] if unit["s"].strip() else [])
 
